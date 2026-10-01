@@ -130,7 +130,7 @@ extension CMUXCLI {
     /// `pre_approval_request`, …); only when the mapper has nothing stronger
     /// than an observation does the prose classifier's verdict fill in, as a
     /// last-resort adapter detail.
-    func agentJournalNotificationKind(
+    static func agentJournalNotificationKind(
         def: AgentHookDef,
         nativeEvent: String?,
         toolName: String?,
@@ -143,8 +143,18 @@ extension CMUXCLI {
                 return mapped
             }
         }
+        return notificationJournalKind(for: summary)
+    }
+
+    /// Converts the classifier's fallback status into a journal event. Idle
+    /// reminders carry `.needsInput` for notification-policy compatibility,
+    /// but they are observations rather than blockers for lifecycle reduction.
+    static func notificationJournalKind(for summary: AgentHookNotificationSummary) -> AgentJournalEventKind {
         switch summary.status {
         case .needsInput?:
+            if summary.notifyCategory == .idleReminder {
+                return .idleObserved
+            }
             return summary.notifyCategory == .needsPermission ? .approvalRequested : .questionRequested
         case .error?:
             return .errorReported

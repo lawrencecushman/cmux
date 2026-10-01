@@ -29271,7 +29271,12 @@ struct CMUXCLI {
                 case "permission_prompt":
                     journalKind = .approvalRequested
                 case "idle_prompt":
-                    // After a StopFailure the idle nag must not settle the error to idle.
+                    // Claude's idle_prompt is a reminder, not evidence that the
+                    // user is blocked. Treat it as an idle observation even when
+                    // the session record is missing or stale; otherwise a delayed
+                    // reminder can resurrect Needs input and prevent hibernation.
+                    // A StopFailure remains authoritative until a real turn event
+                    // clears the error state.
                     journalKind = ClaudeStopFailure.isStopFailureEvent(mappedSession?.hookEventName) ? .stateChanged : .idleObserved
                 default:
                     switch classifiedSubtitle {
@@ -38187,8 +38192,13 @@ export default {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = suppressPendingWaitingState ? .running : agentLifecycle(for: summary.status)
-                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState ? .running : runtimeStatus(for: summary.status)
+                let idleReminder = summary.notifyCategory == .idleReminder
+                let lifecycle = suppressPendingWaitingState || idleReminder
+                    ? (suppressPendingWaitingState ? .running : .idle)
+                    : agentLifecycle(for: summary.status)
+                let storedRuntimeStatus: AgentHookRuntimeStatus? = suppressPendingWaitingState || idleReminder
+                    ? (suppressPendingWaitingState ? .running : .idle)
+                    : runtimeStatus(for: summary.status)
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (notificationCompletesTurn
@@ -38244,7 +38254,7 @@ export default {
             // Journal the semantic event: the native hook event name maps
             // first; the prose classifier's verdict is only the adapter
             // fallback, and a pending waiting-nag never claims needs-input.
-            let mappedJournalKind = agentJournalNotificationKind(
+            let mappedJournalKind = Self.agentJournalNotificationKind(
                 def: def,
                 nativeEvent: reportedHookEventName(from: input),
                 toolName: nil,
@@ -38365,6 +38375,11 @@ export default {
                 // Suppressed pending waiting cue: leave the Running pill in
                 // place; the fullyIdle turn boundary reconciles.
                 break
+            case .needsInput? where summary.notifyCategory == .idleReminder:
+                // Claude's idle_prompt is a reminder after a settled turn, not
+                // a fresh blocker. Keep the pane idle so delayed reminders do
+                // not resurrect Needs input or prevent hibernation.
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case .needsInput?:
                 let statusValue = agentNeedsInputStatusValue(for: def)
                 if cursorShellNeedsApproval {

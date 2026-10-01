@@ -43,6 +43,14 @@ struct AgentHookNotificationPolicyTests {
         #expect(emptyFallback.isFallback == true)
     }
 
+    @Test("Idle reminders do not become lifecycle blockers")
+    func idleReminderJournalKindIsIdleObservation() {
+        let summary = classify("Claude is waiting for your input")
+        #expect(summary.status == .needsInput)
+        #expect(summary.notifyCategory == .idleReminder)
+        #expect(CMUXCLI.notificationJournalKind(for: summary) == .idleObserved)
+    }
+
     @Test func dedupeFingerprintTable() {
         let first = fingerprint(status: .needsInput, body: "waiting for input")
         let same = fingerprint(status: .needsInput, body: "waiting for input")
